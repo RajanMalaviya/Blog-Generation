@@ -1,0 +1,30 @@
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+Backend/venv/
+Backend/.venv/
+*.egg-info/
+
+# Node/frontend build artifacts
+node_modules/
+Frontend/node_modules/
+Frontend/dist/
+dist/
+build/
+
+# Local env and logs
+.env
+*.env
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

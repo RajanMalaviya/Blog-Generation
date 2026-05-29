@@ -1,3 +1,9 @@
+---
+title: Blog Generator API
+sdk: docker
+app_port: 7860
+---
+
 # Blog Generator
 
 Production-style AI blog platform: React frontend → FastAPI backend → n8n workflow (Tavily web search + Groq LLM).
