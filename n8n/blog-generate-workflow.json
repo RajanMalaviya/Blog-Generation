@@ -1,0 +1,267 @@
+{
+  "name": "Blog Generator - Generate Blog",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-blog",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "generate-blog"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "secret-check",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] || $json.headers['X-Webhook-Secret'] }}",
+              "rightValue": "={{ $vars.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-secret",
+      "name": "Validate Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"detail\": \"Unauthorized: invalid webhook secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "unauthorized-response",
+      "name": "Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst title = body.title || '';\nconst primary = (body.primary_keywords || []).join(' ');\nconst secondary = (body.secondary_keywords || []).slice(0, 5).join(' ');\nconst audience = (body.target_audience || '').slice(0, 80);\nconst year = new Date().getFullYear();\nconst searchQuery = [\n  title,\n  primary,\n  secondary,\n  audience,\n  String(year),\n  'case study statistics ROI market trends companies tools deployment',\n]\n  .filter(Boolean)\n  .join(' ')\n  .trim()\n  .replace(/\\s+/g, ' ');\n\nconst lengthTargets = { short: 500, medium: 1000, long: 2000 };\nconst targetWords = lengthTargets[body.length] || 1000;\n\nreturn [{\n  json: {\n    ...body,\n    search_query: searchQuery,\n    target_words: targetWords,\n  },\n}];"
+      },
+      "id": "build-search-query",
+      "name": "Build Search Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"{{ $vars.TAVILY_API_KEY }}\",\n  \"query\": \"{{ $json.search_query }}\",\n  \"search_depth\": \"advanced\",\n  \"max_results\": 8,\n  \"include_answer\": true\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "tavily-search",
+      "name": "Tavily Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Build Search Query').first().json;\nconst tavily = $input.first().json;\nconst results = tavily.results || [];\nconst sources = results.map(r => r.url).filter(Boolean);\n\nlet context = '';\nif (tavily.answer) {\n  context += `Summary: ${tavily.answer}\\n\\n`;\n}\nresults.forEach((r, i) => {\n  context += `Source ${i + 1}: ${r.title}\\nURL: ${r.url}\\n${r.content || ''}\\n\\n`;\n});\n\nif (!context.trim()) {\n  context = 'No web results found. Use general knowledge but note limited recent data.';\n}\n\nreturn [{\n  json: {\n    ...input,\n    research_context: context,\n    sources\n  }\n}];"
+      },
+      "id": "format-research",
+      "name": "Format Research",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst primary = (data.primary_keywords || []).join(', ');\nconst secondary = (data.secondary_keywords || []).join(', ');\nconst extra = data.additional_context || 'None';\nconst audience = data.target_audience || 'general readers';\n\nconst userContent = [\n  '# Blog assignment',\n  `Title: ${data.title}`,\n  '',\n  `Target audience: ${audience}`,\n  `Tone: ${data.tone}`,\n  `Length target: ~${data.target_words} words (${data.length})`,\n  `Language: ${data.language}`,\n  '',\n  `Primary keywords (H1, at least 2 H2s, intro, conclusion): ${primary}`,\n  `Secondary keywords (relevant body sections): ${secondary}`,\n  '',\n  `Additional instructions: ${extra}`,\n  '',\n  '--- RESEARCH CONTEXT (facts, stats, examples — cite only from here) ---',\n  data.research_context || '',\n].join('\\n');\n\nconst systemPrompt = [\n  'You are a senior B2B editorial writer for technology, healthcare, and finance. Readers may include software developers, startup founders, and executives.',\n  '',\n  'AUDIENCE (mandatory): Shape the article for the stated target audience — not a generic overview.',\n  '- If developers or engineers are in the audience: include a dedicated ## For developers (or similar) with technical depth — LLMs, RAG, agent architectures, MLOps, deployment, data pipelines, latency — naming specific tools/frameworks only when they appear in research.',\n  '- If founders, CEOs, or executives are in the audience: include a dedicated ## For leaders (or similar) covering ROI, cost reduction, market opportunity, compliance risk (e.g. HIPAA, SOC2, EU AI Act), and competitive moats.',\n  '- When multiple audiences are listed, each must get its own clearly labeled H2 section.',\n  '',\n  'STRUCTURE (markdown only):',\n  '- # H1 title with a primary keyword woven in naturally',\n  '- Opening paragraph with a clear, opinionated thesis — include one memorable line a founder or investor could quote',\n  '- 4–6 ## H2 sections with ### H3 subsections where depth is needed',\n  '- ## FAQ — exactly 4–5 questions with concise, useful answers (long-tail SEO)',\n  '- ## Key takeaways — 4–6 actionable bullets',\n  '- ## Sources — bullet list of URLs taken only from the research context (omit this section if no URLs were provided)',\n  '',\n  'SEO: Place primary keywords in H1, at least two H2 headings, the introduction, and the conclusion. Use secondary keywords in relevant H2/H3 bodies. Prefer semantic variants over repetition; never keyword-stuff.',\n  '',\n  'EVIDENCE AND EXAMPLES:',\n  '- Use ONLY the research context for specific statistics, dates, dollar figures, and named companies/products.',\n  '- Include 2–4 concrete examples (vendors, deployments, case studies) when supported by research.',\n  '- Do not invent brands, statistics, or case studies. If research is thin, use careful qualitative language without fake numbers.',\n  '',\n  'QUALITY RULES:',\n  '- Do not repeat the same idea with synonymous filler (e.g. ban chains like \"AI is transforming / reshaping / revolutionizing…\").',\n  '- Every paragraph must add a new fact, implication, or recommendation.',\n  '- Include at least one contrarian or non-obvious insight with reasoning.',\n  '- Include at least one labeled 3–5 year outlook or prediction.',\n  '- Address trust, governance, authenticity, or practical deployment challenges where the topic warrants it.',\n  '- Match the requested tone, language, and approximate word count.',\n  '- Output ONLY the markdown blog. No preamble, no meta-commentary (e.g. never write \"In this article we will…\").',\n].join('\\n');\n\nconst groq_request = {\n  model: 'llama-3.3-70b-versatile',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userContent },\n  ],\n  temperature: 0.55,\n  max_tokens: 8192,\n};\n\nreturn [{ json: { ...data, groq_request } }];"
+      },
+      "id": "build-groq-request",
+      "name": "Build Groq Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [990, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.groq_request }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "groq-llm",
+      "name": "Groq LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1210, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const groq = $input.first().json;\nconst meta = $('Format Research').first().json;\n\nlet blog = '';\ntry {\n  blog = groq.choices[0].message.content;\n} catch (e) {\n  throw new Error('Failed to parse Groq response: ' + JSON.stringify(groq));\n}\n\nblog = blog.trim();\nif (blog.startsWith('```')) {\n  blog = blog.replace(/^```(?:markdown)?\\n?/, '').replace(/\\n?```$/, '');\n}\n\nconst word_count = blog.split(/\\s+/).filter(Boolean).length;\n\nreturn [{\n  json: {\n    blog,\n    word_count,\n    sources: meta.sources || []\n  }\n}];"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1430, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1650, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Secret": {
+      "main": [
+        [
+          {
+            "node": "Build Search Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Query": {
+      "main": [
+        [
+          {
+            "node": "Tavily Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Search": {
+      "main": [
+        [
+          {
+            "node": "Format Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Research": {
+      "main": [
+        [
+          {
+            "node": "Build Groq Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq Request": {
+      "main": [
+        [
+          {
+            "node": "Groq LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq LLM": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
