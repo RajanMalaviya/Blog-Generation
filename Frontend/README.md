@@ -24,7 +24,9 @@ Open http://localhost:5173
 ## Deploy to Vercel
 
 1. Import repo, set **Root Directory** to `Frontend`.
-2. Add `VITE_API_BASE_URL` = your Render backend URL.
+2. Add `VITE_API_BASE_URL` = your Hugging Face Space backend URL.
 3. Deploy.
 
 `vercel.json` handles SPA routing on refresh.
+
+Production frontend: https://blog-generator-coral-seven.vercel.app/

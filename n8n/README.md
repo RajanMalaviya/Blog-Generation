@@ -25,6 +25,16 @@ If **Validate Secret** fails with `N8N_BLOCK_ENV_ACCESS_IN_NODE`, re-import this
 
 Tavily research text contains newlines and quotes. Do not paste `research_context` into a static JSON Body field. Use the **Build Groq Request** code node (included in this workflow) and set Groq **JSON Body** to `={{ $json.groq_request }}`.
 
+### Groq LLM: token-per-minute limit
+
+Groq on-demand projects can reject large requests with a message like `Limit 12000, Requested 12070`. This workflow is tuned to reduce that risk:
+
+- Tavily search uses `basic` depth and `max_results: 4`.
+- Research snippets are trimmed before the Groq request.
+- Groq `max_tokens` is set by requested blog length: short `1400`, medium `2600`, long `3800`.
+
+If this error still appears, test with `length: "short"` first, reduce keywords/additional context, or upgrade the Groq service tier.
+
 ## Flow
 
 ```

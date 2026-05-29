@@ -1,46 +1,44 @@
 # Blog Generator API
 
-FastAPI backend that validates blog generation requests and triggers an n8n workflow (Tavily + Groq).
+FastAPI backend that validates blog generation requests and triggers an n8n workflow using Tavily and Groq.
 
-## Local setup
+## Local Setup
 
 ```bash
-cd backend
+cd Backend
 python -m venv venv
-# Windows:
 venv\Scripts\activate
-# macOS/Linux:
-# source venv/bin/activate
-
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your n8n webhook URL and secret
-
+copy .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
 Swagger UI: http://localhost:8000/docs
 
-## Environment variables
+## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `N8N_WEBHOOK_URL` | Full n8n production webhook URL |
 | `N8N_WEBHOOK_SECRET` | Shared secret sent as `x-webhook-secret` header |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins (e.g. Vercel URL) |
-| `N8N_TIMEOUT_SECONDS` | Max wait for n8n (default 120) |
-| `RATE_LIMIT_PER_MINUTE` | Per-IP limit on `/blog/generate` (default 10) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins, production uses `https://blog-generator-coral-seven.vercel.app` |
+| `N8N_TIMEOUT_SECONDS` | Max wait for n8n, default `120` |
+| `RATE_LIMIT_PER_MINUTE` | Per-IP limit on `/blog/generate`, default `10` |
 
-## API endpoints
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/health` | Health check |
 | POST | `/api/v1/blog/generate` | Generate blog via n8n |
 
-## Deploy to Render
+## Deploy to Hugging Face Spaces
 
-1. Connect this repo to Render.
-2. Set root directory to `backend` (or use `render.yaml` at repo root).
-3. Add env vars from `.env.example`.
-4. Deploy and copy the service URL for the frontend `VITE_API_BASE_URL`.
+The repo root is configured as a Docker Space with `app_port: 7860` in the root README front matter.
+
+1. Push the repo to the Hugging Face Space.
+2. Add backend secrets in the Space settings.
+3. Rebuild or restart the Space after code or secret changes.
+4. Use the Space URL as the frontend `VITE_API_BASE_URL`.
+
+If n8n or Groq returns an empty/non-JSON response, the backend maps that to a clean `502` response instead of exposing a JSON parsing crash.
