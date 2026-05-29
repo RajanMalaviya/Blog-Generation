@@ -57,7 +57,24 @@ class N8NService:
             logger.error(f"n8n returned HTTP {e.response.status_code}: {e.response.text}")
             raise N8NServiceError(f"Workflow engine error: {e.response.status_code}")
 
-        data = response.json()
+        if not response.content:
+            logger.error("n8n returned HTTP 200 with an empty response body")
+            raise N8NServiceError("Workflow engine returned an empty response.")
+
+        try:
+            data = response.json()
+        except ValueError as e:
+            logger.error(
+                f"n8n returned non-JSON response | "
+                f"content_type={response.headers.get('content-type')} "
+                f"body={response.text[:500]}"
+            )
+            raise N8NServiceError("Workflow engine returned an invalid response.") from e
+
+        if not isinstance(data, dict) or not data.get("blog"):
+            logger.error(f"n8n response missing blog field: {data}")
+            raise N8NServiceError("Workflow engine response is missing the blog content.")
+
         logger.success(f"n8n responded OK | word_count={data.get('word_count', '?')}")
 
         blog_text = data["blog"]
